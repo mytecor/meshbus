@@ -60,6 +60,8 @@ session promotes that identity into `Peers`; only promoted peers receive pub/sub
 `Send` to a discovered candidate can establish that first session.
 
 See [Usage](./docs/USAGE.md) for direct messaging, pub/sub, lifecycle, defaults, and RNS modes.
+A buildable shared-instance program lives in
+[`examples/rns-shared`](./examples/rns-shared).
 
 ## Packages
 
@@ -73,7 +75,7 @@ See [Usage](./docs/USAGE.md) for direct messaging, pub/sub, lifecycle, defaults,
 
 - [Architecture and authority](./docs/ARCHITECTURE.md)
 - [Usage](./docs/USAGE.md)
-- [Wire contracts](./WIRE.md)
+- [Wire contracts](./docs/WIRE.md)
 - [Security policy](./SECURITY.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Changelog](./CHANGELOG.md)

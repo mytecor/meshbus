@@ -1,13 +1,3 @@
-// Package rns implements a reusable, authenticated Reticulum adapter for
-// meshbus. It owns RNS identity handling, destinations, announces, links,
-// mutual realm authentication, Channels, authenticated direct-message
-// delivery, connection/session reuse, peer route lookup, bounded
-// pre-authentication buffering, and generic peer discovery integration.
-//
-// The adapter is application-agnostic: it exposes opaque direct delivery and
-// reports advisory discovery separately from completed realm authentication.
-// Node owns authoritative peer state and pub/sub fan-out. Announces always use
-// the bounded meshbus.v1 presence format.
 package rns
 
 import (
@@ -19,75 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
-	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
 	"github.com/mytecor/meshbus"
 	"github.com/mytecor/meshbus/realm"
 )
-
-const (
-	defaultRealmAppName = "meshbus"
-	defaultRealmAspect  = "peer"
-	defaultAnnounce     = 5 * time.Minute
-	defaultNetworkWait  = 30 * time.Second
-)
-
-// StackMode selects how the adapter joins Reticulum.
-type StackMode uint8
-
-const (
-	// StackSharedClient attaches to an already-running shared instance and
-	// never falls back to owning its listener.
-	StackSharedClient StackMode = iota
-	// StackStandalone starts the explicitly configured Reticulum interfaces.
-	StackStandalone
-)
-
-// Config defines one generic Reticulum adapter endpoint. Shared-client mode
-// uses the platform-default shared instance; standalone mode requires an
-// explicit Reticulum configuration.
-type Config struct {
-	StackMode StackMode
-	Reticulum *common.ReticulumConfig
-	// connectShared is a test-only override for attaching shared-client mode
-	// endpoints to an isolated shared-instance listener.
-	connectShared sharedConnector
-	// IdentitySource is an existing or new identity file path, or a private
-	// RNS identity encoded in hex, Base32, or URL-safe Base64.
-	IdentitySource string
-	// EphemeralIdentity creates a fresh identity in memory. It is intended for
-	// one run-oriented client process and is mutually exclusive with
-	// IdentitySource; the private identity is never written to disk.
-	EphemeralIdentity bool
-	// RealmKey is the shared 256-bit membership secret. It is used only for
-	// realm ID derivation and link challenge-response, and is never announced.
-	RealmKey         []byte
-	AppName          string
-	Aspect           string
-	AnnounceInterval time.Duration
-	NetworkWait      time.Duration
-	// Interfaces, when non-empty, replaces standalone config-driven interface
-	// construction. It also supports wrapped interfaces for deterministic tests.
-	Interfaces []interfaces.Interface
-	// PresenceMetadata is bounded advisory data carried by meshbus.v1 presence.
-	PresenceMetadata map[string]string
-	// Passive suppresses local announces while retaining peer discovery.
-	Passive bool
-	// DirectoryConfig bounds the peer directory. Zero uses the package default.
-	DirectoryConfig DirectoryConfig
-	// Handler receives authenticated direct messages as meshbus primitives.
-	Handler     meshbus.Handler
-	OnPeerError func(error)
-}
-
-// DirectoryConfig bounds the adapter's peer directory.
-type DirectoryConfig struct {
-	MaxPeers         int
-	MaxMetadataBytes int
-}
 
 // Endpoint is the reusable meshbus transport facade over authenticated RNS
 // direct messages. Link establishment, realm authentication, Channel delivery,

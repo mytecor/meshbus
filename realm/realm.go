@@ -1,8 +1,3 @@
-// Package realm defines a transport-independent shared-secret membership realm.
-//
-// A realm proves only that two authenticated peers possess the same key. It
-// does not assign roles, grant application permissions, or make a payload's
-// claimed sender authoritative.
 package realm
 
 import (

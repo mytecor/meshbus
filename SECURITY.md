@@ -19,4 +19,5 @@ exhaustion, secret disclosure, or wire-format confusion.
 - Applications remain responsible for key distribution, storage, rotation, authorization, durable
   replay protection, and handler idempotency.
 
-The supported wire contracts and their compatibility rules are documented in [WIRE.md](./WIRE.md).
+The supported wire contracts and their compatibility rules are documented in
+[WIRE.md](./docs/WIRE.md).

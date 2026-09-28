@@ -1,5 +1,21 @@
 # Architecture and authority
 
+## Repository layout
+
+```text
+./                 transport-independent public meshbus package
+realm/             standard-library-only realm primitive
+rns/               public Reticulum adapter and its package-private mechanics
+docs/              architecture, usage, and wire contracts
+examples/          buildable application examples
+integration/       black-box tests that consume only exported APIs
+.github/workflows/ standalone continuous verification
+```
+
+The public core remains at the module root so consumers import `github.com/mytecor/meshbus` rather
+than an artificial `pkg/meshbus` or `core` suffix. Files move into a new package only when there is
+a real dependency boundary, not merely to reduce the number of files shown at the root.
+
 ## Layers
 
 ```text

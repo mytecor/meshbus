@@ -1,5 +1,3 @@
-// Package meshbus defines transport-independent authenticated peer messaging,
-// bounded peer discovery, and best-effort pub/sub composition.
 package meshbus
 
 import (

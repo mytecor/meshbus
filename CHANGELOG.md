@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Expanded standalone documentation and continuous verification.
+- Organized package documentation, examples, integration tests, and RNS configuration by role
+  without changing public import paths.
 
 ## v0.1.0 — 2026-09-28
 
