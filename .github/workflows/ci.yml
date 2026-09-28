@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  quality:
+    name: quality, race, and boundaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -26,4 +27,31 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      - run: go mod verify
       - run: make check
+
+  cross-platform:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go test ./...
+
+  fuzz-smoke:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: make fuzz-smoke
