@@ -92,7 +92,9 @@ func NewNode(config NodeConfig) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidNode, err)
 	}
-	peers, err := NewPeerDirectory(config.Directory)
+	authenticatedConfig := config.Directory
+	authenticatedConfig.unbounded = true
+	peers, err := NewPeerDirectory(authenticatedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidNode, err)
 	}
@@ -265,7 +267,6 @@ func (n *Node) sweepLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			n.candidates.ExpireStale(n.peerTTL)
-			n.peers.ExpireStale(n.peerTTL)
 		}
 	}
 }

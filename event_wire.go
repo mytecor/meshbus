@@ -17,7 +17,7 @@ func isEventMessage(payload []byte) bool {
 
 func encodeEvent(event Event, maxPayload int, maxTTL time.Duration) ([]byte, error) {
 	if event.ID.isZero() || validateTopic(event.Topic) != nil || event.PublishedAt.IsZero() ||
-		event.TTL < time.Millisecond || event.TTL > maxTTL || len(event.Payload) == 0 || len(event.Payload) > maxPayload ||
+		event.TTL < time.Millisecond || event.TTL > maxTTL || len(event.Payload) > maxPayload ||
 		len(event.ContentType) > 128 {
 		return nil, ErrInvalidEvent
 	}
@@ -57,7 +57,7 @@ func decodeEvent(data []byte, maxPayload int, maxTTL time.Duration) (Event, erro
 	contentTypeLength64 := uint64(binary.BigEndian.Uint16(data[34:36]))
 	payloadLength64 := uint64(binary.BigEndian.Uint32(data[36:40]))
 	wantLength := uint64(eventHeaderSize) + topicLength64 + contentTypeLength64 + payloadLength64
-	if wantLength != uint64(len(data)) || payloadLength64 == 0 || payloadLength64 > uint64(maxPayload) {
+	if wantLength != uint64(len(data)) || payloadLength64 > uint64(maxPayload) {
 		return Event{}, ErrInvalidEvent
 	}
 	topicLength := int(topicLength64)

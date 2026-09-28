@@ -77,19 +77,21 @@ Topics are exact and case-sensitive. There are no wildcard subscriptions.
 | --- | ---: |
 | Event TTL | 1 minute |
 | Maximum event TTL | 1 hour |
-| Event payload | 64 KiB |
+| Event payload | 64 MiB |
 | Deduplication entries | 4096 |
 | Queue entries per subscription | 32 |
-| Subscriptions | 128 |
-| Fan-out peers | 256 |
+| Subscriptions | No global cap; each has a bounded queue |
+| Fan-out peers | All authenticated peers |
 | Concurrent sends | 8 |
-| Directory peers | 1024 |
+| Discovery candidates | 1024, oldest evicted at capacity |
+| Authenticated peers | No hard count limit |
 | Metadata per peer | 4096 bytes |
-| Peer stale TTL | 15 minutes |
+| Candidate stale TTL | 15 minutes |
 | Peer sweep interval | 1 minute |
 
 Zero-valued configuration fields select defaults. Negative directory bounds and contradictory Bus
-or Node limits are rejected.
+or Node limits are rejected. Authenticated peers do not expire on the discovery TTL; transport
+lifecycle and explicit shutdown govern their sessions.
 
 ## RNS modes
 

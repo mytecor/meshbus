@@ -15,13 +15,15 @@ type session struct {
 	link          *link.Link
 	channel       *channel.Channel
 	sender        []byte
-	pending       [][]byte
-	pendingAuth   [][]byte
+	pendingAuth   map[byte]authMessage
 	challenge     []byte
 	authenticated bool
 	authErr       error
 	authDone      chan struct{}
 	authOnce      sync.Once
+	peerReady     bool
+	readyDone     chan struct{}
+	readyOnce     sync.Once
 }
 
 type dialAttempt struct {

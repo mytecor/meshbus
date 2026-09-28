@@ -53,9 +53,6 @@ func NewReceivedMessage(sender []byte, payload []byte) (ReceivedMessage, error) 
 	if err != nil {
 		return ReceivedMessage{}, err
 	}
-	if len(payload) == 0 {
-		return ReceivedMessage{}, ErrInvalidMessage
-	}
 	return ReceivedMessage{sender: peer, payload: bytes.Clone(payload)}, nil
 }
 

@@ -90,6 +90,26 @@ func TestPublishFansOutOnceToUniquePeerSnapshot(t *testing.T) {
 	}
 }
 
+func TestDefaultPayloadBudgetExceedsLegacyChannelLimit(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	peer := busTestPeer("peer")
+	sender := &recordingSender{}
+	bus := newTestBus(t, sender, []PeerID{peer}, &now, nil)
+	payload := bytes.Repeat([]byte{0x5a}, 64*1024+1)
+
+	if _, err := bus.Publish(context.Background(), "large.event", payload, PublishOptions{}); err != nil {
+		t.Fatalf("default payload budget rejected %d bytes: %v", len(payload), err)
+	}
+	messages := sender.snapshot()
+	if len(messages) != 1 {
+		t.Fatalf("sent %d messages, want 1", len(messages))
+	}
+	event, err := decodeEvent(messages[0].payload, defaultMaxEventPayload, defaultMaxEventTTL)
+	if err != nil || !bytes.Equal(event.Payload, payload) {
+		t.Fatalf("large event round trip failed: bytes=%d error=%v", len(event.Payload), err)
+	}
+}
+
 func TestHandleMessageUsesAuthenticatedSenderAndDeduplicates(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	bus := newTestBus(t, &recordingSender{}, nil, &now, nil)
@@ -218,7 +238,7 @@ func TestSubscriptionQueueAppliesBackpressure(t *testing.T) {
 	close(release)
 }
 
-func TestBusBoundsSubscriptionsFanoutAndWireInput(t *testing.T) {
+func TestBusDoesNotCapSubscriptionsOrFanoutAndRejectsInvalidWire(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	sender := &recordingSender{}
 	bus := newTestBus(t, sender, []PeerID{busTestPeer("a"), busTestPeer("b")}, &now, func(config *BusConfig) {
@@ -230,11 +250,12 @@ func TestBusBoundsSubscriptionsFanoutAndWireInput(t *testing.T) {
 	if _, err := bus.Subscribe("one.topic", func(context.Context, ReceivedEvent) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bus.Subscribe("two.topic", func(context.Context, ReceivedEvent) error { return nil }); !errors.Is(err, ErrSubscriptionLimit) {
-		t.Fatalf("subscription error=%v", err)
+	if _, err := bus.Subscribe("two.topic", func(context.Context, ReceivedEvent) error { return nil }); err != nil {
+		t.Fatalf("second subscription error=%v", err)
 	}
-	if _, err := bus.Publish(context.Background(), "one.topic", []byte("payload"), PublishOptions{}); !errors.Is(err, ErrFanoutLimit) {
-		t.Fatalf("publish error=%v", err)
+	result, err := bus.Publish(context.Background(), "one.topic", []byte("payload"), PublishOptions{})
+	if err != nil || result.Attempted != 2 || result.Delivered != 2 {
+		t.Fatalf("publish result=%+v error=%v", result, err)
 	}
 	if _, err := bus.Publish(context.Background(), "bad topic", []byte("payload"), PublishOptions{}); !errors.Is(err, ErrInvalidTopic) {
 		t.Fatalf("topic error=%v", err)
@@ -242,6 +263,22 @@ func TestBusBoundsSubscriptionsFanoutAndWireInput(t *testing.T) {
 	invalid, _ := NewReceivedMessage([]byte{1}, append(eventMagic[:], []byte("truncated")...))
 	if handled, err := bus.HandleMessage(context.Background(), invalid); !handled || !errors.Is(err, ErrInvalidEvent) {
 		t.Fatalf("invalid wire handled=%v error=%v", handled, err)
+	}
+}
+
+func TestEventWireAllowsEmptyPayload(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	event := Event{ID: EventID{1}, Topic: "worker.ready", PublishedAt: now, TTL: time.Minute}
+	wire, err := encodeEvent(event, defaultMaxEventPayload, defaultMaxEventTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeEvent(wire, defaultMaxEventPayload, defaultMaxEventTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Payload == nil || len(decoded.Payload) != 0 {
+		t.Fatalf("decoded payload = %#v, want non-nil empty payload", decoded.Payload)
 	}
 }
 

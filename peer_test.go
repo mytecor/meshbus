@@ -98,23 +98,31 @@ func TestPeerDirectoryMetadataBounds(t *testing.T) {
 	}
 }
 
-// The directory rejects new identities once
-// at capacity (updates to known identities remain allowed).
-func TestPeerDirectoryPeerLimit(t *testing.T) {
-	directory := testDirectory(DirectoryConfig{MaxPeers: 2})
-	for id := byte(0); id < 2; id++ {
-		if err := directory.Remember(testPeer(id, "r")); err != nil {
-			t.Fatalf("Remember %d: %v", id, err)
-		}
+func TestPeerDirectoryEvictsOldestAtCapacity(t *testing.T) {
+	now := time.Unix(1000, 0)
+	directory := testDirectory(DirectoryConfig{MaxPeers: 2, now: func() time.Time { return now }})
+	first := testPeer(0x00, "r")
+	if err := directory.Remember(first); err != nil {
+		t.Fatal(err)
 	}
+	now = now.Add(time.Second)
+	second := testPeer(0x01, "r")
+	if err := directory.Remember(second); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
 	third := testPeer(0x02, "r")
-	if err := directory.Remember(third); !errors.Is(err, ErrPeerLimit) {
-		t.Fatalf("over-capacity error = %v, want ErrPeerLimit", err)
+	if err := directory.Remember(third); err != nil {
+		t.Fatalf("over-capacity Remember error = %v", err)
 	}
-	// Updating a known identity is allowed at capacity.
-	known := testPeer(0x00, "updated")
-	if err := directory.Remember(known); err != nil {
-		t.Fatalf("update of known identity at capacity failed: %v", err)
+	if _, ok := directory.Get(first.ID); ok {
+		t.Fatal("oldest candidate was not evicted")
+	}
+	if _, ok := directory.Get(second.ID); !ok {
+		t.Fatal("newer candidate was evicted")
+	}
+	if _, ok := directory.Get(third.ID); !ok {
+		t.Fatal("new candidate was not stored")
 	}
 	if got := directory.Len(); got != 2 {
 		t.Fatalf("Len() = %d, want 2", got)

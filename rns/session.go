@@ -25,21 +25,16 @@ func (e *Endpoint) acceptLink(value any) {
 		}
 		active.mu.Lock()
 		active.sender = bytes.Clone(remote.Hash())
-		pending := active.pending
-		active.pending = nil
 		pendingAuth := active.pendingAuth
-		active.pendingAuth = nil
+		active.pendingAuth = make(map[byte]authMessage)
 		active.mu.Unlock()
 		e.connections.cacheSession(active, remote.Hash(), nil)
 		e.beginAuthentication(active)
-		for _, data := range pendingAuth {
-			var message authMessage
-			if message.Unpack(data) == nil {
+		for _, kind := range []byte{authKindChallenge, authKindResponse, authKindReady} {
+			if message, exists := pendingAuth[kind]; exists {
+				message := message
 				go e.handleAuthentication(active, &message)
 			}
-		}
-		for _, data := range pending {
-			go e.deliver(active, data)
 		}
 	}
 	inbound.SetRemoteIdentifiedCallback(func(_ *link.Link, remote *identity.Identity) { authenticate(remote) })
@@ -56,8 +51,29 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 	}
 	active := &session{
 		link: rnsLink, channel: rnsChannel,
-		sender: bytes.Clone(sender), authDone: make(chan struct{}),
+		sender: bytes.Clone(sender), pendingAuth: make(map[byte]authMessage),
+		authDone: make(chan struct{}), readyDone: make(chan struct{}),
 	}
+	if err := rnsLink.SetResourceStrategy(link.AcceptApp); err != nil {
+		return nil, err
+	}
+	rnsLink.SetResourceCallback(func(any) bool {
+		active.mu.RLock()
+		defer active.mu.RUnlock()
+		return active.authenticated && active.authErr == nil && len(active.sender) != 0
+	})
+	rnsLink.SetResourceConcludedCallback(func(value any) {
+		var data []byte
+		switch incoming := value.(type) {
+		case []byte:
+			data = incoming
+		case link.IncomingResource:
+			data = incoming.Data
+		default:
+			return
+		}
+		go e.deliver(active, data)
+	})
 	rnsChannel.AddMessageHandler(func(message channel.MessageBase) bool {
 		if authentication, ok := message.(*authMessage); ok {
 			go e.handleAuthentication(active, authentication)
@@ -78,17 +94,7 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 func (e *Endpoint) deliver(active *session, data []byte) {
 	active.mu.Lock()
 	sender := bytes.Clone(active.sender)
-	if len(sender) == 0 {
-		if len(active.pending) < 8 {
-			active.pending = append(active.pending, bytes.Clone(data))
-		}
-		active.mu.Unlock()
-		return
-	}
-	if !active.authenticated {
-		if active.authErr == nil && len(active.pending) < 8 {
-			active.pending = append(active.pending, bytes.Clone(data))
-		}
+	if len(sender) == 0 || !active.authenticated {
 		active.mu.Unlock()
 		return
 	}

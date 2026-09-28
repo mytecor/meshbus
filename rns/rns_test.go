@@ -215,6 +215,17 @@ func TestDiscoveredPeerReceivesDirectBytesWithoutR1s(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("direct meshbus bytes were not delivered")
 	}
+	if err := passive.SendMessage(sendCtx, peer, nil); err != nil {
+		t.Fatalf("send empty direct message: %v", err)
+	}
+	select {
+	case message := <-received:
+		if len(message.Payload()) != 0 {
+			t.Fatalf("empty payload = %x", message.Payload())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("empty direct message was not delivered")
+	}
 }
 
 func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
@@ -294,16 +305,26 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		t.Fatalf("authenticated RNS Node peers A=%+v B=%+v", nodeA.Peers(), nodeB.Peers())
 	}
 
-	if _, err := nodeA.Publish(ctx, "rns.node.event", []byte("node-publish"), meshbus.PublishOptions{}); err != nil {
+	// The serialized event is far larger than a Channel MDU and must be
+	// transferred transparently as an RNS Resource.
+	largePayload := make([]byte, 16*1024)
+	state := uint32(0x6d657368)
+	for index := range largePayload {
+		state ^= state << 13
+		state ^= state >> 17
+		state ^= state << 5
+		largePayload[index] = byte(state)
+	}
+	if _, err := nodeA.Publish(ctx, "rns.node.event", largePayload, meshbus.PublishOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case event := <-eventsB:
-		if event.Sender != peerA || string(event.Payload) != "node-publish" {
-			t.Fatalf("event sender=%s payload=%q", event.Sender.String(), event.Payload)
+		if event.Sender != peerA || !bytes.Equal(event.Payload, largePayload) {
+			t.Fatalf("event sender=%s payload bytes=%d", event.Sender.String(), len(event.Payload))
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Node event was not delivered over RNS")
+	case <-time.After(15 * time.Second):
+		t.Fatal("large Node event was not delivered over RNS Resource")
 	}
 	handlerContext := <-directContexts
 	cancel()

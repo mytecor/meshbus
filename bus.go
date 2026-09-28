@@ -14,11 +14,9 @@ import (
 const (
 	defaultEventTTL          = time.Minute
 	defaultMaxEventTTL       = time.Hour
-	defaultMaxEventPayload   = 64 * 1024
+	defaultMaxEventPayload   = 64 * 1024 * 1024
 	defaultDedupCapacity     = 4096
 	defaultQueueCapacity     = 32
-	defaultMaxSubscriptions  = 128
-	defaultMaxFanoutPeers    = 256
 	defaultFanoutConcurrency = 8
 )
 
@@ -35,14 +33,18 @@ func (f PeerSourceFunc) Peers() []PeerID { return f() }
 
 // BusConfig sets finite resource bounds for one in-memory event bus.
 type BusConfig struct {
-	Sender            Sender
-	Peers             PeerSource
-	DefaultTTL        time.Duration
-	MaxTTL            time.Duration
-	MaxPayloadBytes   int
-	DedupCapacity     int
-	QueueCapacity     int
-	MaxSubscriptions  int
+	Sender          Sender
+	Peers           PeerSource
+	DefaultTTL      time.Duration
+	MaxTTL          time.Duration
+	MaxPayloadBytes int
+	DedupCapacity   int
+	QueueCapacity   int
+	// MaxSubscriptions is retained for source compatibility and ignored.
+	// Deprecated: subscriptions are not globally capped.
+	MaxSubscriptions int
+	// MaxFanoutPeers is retained for source compatibility and ignored.
+	// Deprecated: FanoutConcurrency bounds parallel sends instead.
 	MaxFanoutPeers    int
 	FanoutConcurrency int
 	OnHandlerError    func(error)
@@ -104,20 +106,13 @@ func NewBus(config BusConfig) (*Bus, error) {
 	if config.QueueCapacity == 0 {
 		config.QueueCapacity = defaultQueueCapacity
 	}
-	if config.MaxSubscriptions == 0 {
-		config.MaxSubscriptions = defaultMaxSubscriptions
-	}
-	if config.MaxFanoutPeers == 0 {
-		config.MaxFanoutPeers = defaultMaxFanoutPeers
-	}
 	if config.FanoutConcurrency == 0 {
 		config.FanoutConcurrency = defaultFanoutConcurrency
 	}
 	if config.DefaultTTL < time.Millisecond || config.MaxTTL < config.DefaultTTL ||
 		config.MaxTTL > time.Duration(^uint32(0))*time.Millisecond || config.MaxPayloadBytes < 1 ||
 		uint64(config.MaxPayloadBytes) > uint64(^uint32(0)) ||
-		config.DedupCapacity < 1 || config.QueueCapacity < 1 || config.MaxSubscriptions < 1 ||
-		config.MaxFanoutPeers < 1 || config.FanoutConcurrency < 1 || config.FanoutConcurrency > config.MaxFanoutPeers {
+		config.DedupCapacity < 1 || config.QueueCapacity < 1 || config.FanoutConcurrency < 1 {
 		return nil, fmt.Errorf("%w: invalid event bus bounds", ErrInvalidEvent)
 	}
 	if config.clock == nil {
@@ -146,9 +141,6 @@ func (b *Bus) Subscribe(topic string, handler EventHandler) (*Subscription, erro
 	defer b.mu.Unlock()
 	if b.closed {
 		return nil, ErrBusClosed
-	}
-	if len(b.subs) >= b.config.MaxSubscriptions {
-		return nil, ErrSubscriptionLimit
 	}
 	b.nextID++
 	ctx, cancel := context.WithCancel(b.ctx)
@@ -205,10 +197,7 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload []byte, options
 			result.LocalDelivered = true
 		}
 	}
-	destinations, err := b.destinations()
-	if err != nil {
-		return result, err
-	}
+	destinations := b.destinations()
 	result.Attempted = len(destinations)
 	if len(destinations) == 0 {
 		return result, errors.Join(failures...)
@@ -294,7 +283,7 @@ func (b *Bus) Handler(next Handler) Handler {
 	}
 }
 
-func (b *Bus) destinations() ([]PeerID, error) {
+func (b *Bus) destinations() []PeerID {
 	seen := make(map[PeerID]struct{})
 	result := make([]PeerID, 0)
 	for _, peer := range b.peers.Peers() {
@@ -306,11 +295,8 @@ func (b *Bus) destinations() ([]PeerID, error) {
 		}
 		seen[peer] = struct{}{}
 		result = append(result, peer)
-		if len(result) > b.config.MaxFanoutPeers {
-			return nil, ErrFanoutLimit
-		}
 	}
-	return result, nil
+	return result
 }
 
 func (b *Bus) duplicate(id EventID, expiresAt, now time.Time) bool {

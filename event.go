@@ -16,9 +16,13 @@ var (
 	ErrInvalidEvent      = errors.New("invalid event")
 	ErrInvalidTopic      = errors.New("invalid event topic")
 	ErrEventBackpressure = errors.New("event subscription queue is full")
+	// ErrSubscriptionLimit is retained for compatibility but is no longer returned.
+	// Deprecated: subscriptions are not globally capped.
 	ErrSubscriptionLimit = errors.New("event subscription limit reached")
-	ErrFanoutLimit       = errors.New("event fan-out peer limit exceeded")
-	ErrBusClosed         = errors.New("event bus is closed")
+	// ErrFanoutLimit is retained for compatibility but is no longer returned.
+	// Deprecated: fan-out concurrency bounds resource use instead.
+	ErrFanoutLimit = errors.New("event fan-out peer limit exceeded")
+	ErrBusClosed   = errors.New("event bus is closed")
 )
 
 // EventID is a publisher-generated 128-bit identifier used for bounded

@@ -32,12 +32,16 @@ func TestReceivedMessageIsolatesAuthenticatedSenderAndPayload(t *testing.T) {
 	}
 }
 
-func TestReceivedMessageRejectsMissingAuthorityOrPayload(t *testing.T) {
+func TestReceivedMessageRejectsMissingAuthorityAndAllowsEmptyPayload(t *testing.T) {
 	if _, err := NewReceivedMessage(nil, []byte("payload")); !errors.Is(err, ErrInvalidPeerID) {
 		t.Fatalf("missing sender error = %v", err)
 	}
-	if _, err := NewReceivedMessage([]byte{1}, nil); !errors.Is(err, ErrInvalidMessage) {
-		t.Fatalf("missing payload error = %v", err)
+	message, err := NewReceivedMessage([]byte{1}, nil)
+	if err != nil {
+		t.Fatalf("empty payload error = %v", err)
+	}
+	if len(message.Payload()) != 0 {
+		t.Fatalf("empty payload became %x", message.Payload())
 	}
 }
 

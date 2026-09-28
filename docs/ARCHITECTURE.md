@@ -50,7 +50,8 @@ An identity serialized inside an opaque payload or presence metadata is never au
 ## State ownership
 
 - The transport adapter owns routes, active sessions, reconnects, and transport-specific limits.
-- `Node` owns bounded candidate and authenticated peer directories and expires stale entries.
+- `Node` bounds discovery candidates with oldest-first eviction and expires only stale candidates.
+- Authenticated peers have no hard count limit and do not expire merely because announces stop.
 - `Bus` owns in-memory subscriptions, bounded queues, event IDs, TTL handling, and bounded duplicate
   suppression.
 - Applications own durable state, retries beyond one send, authorization, and idempotency.
@@ -67,6 +68,8 @@ restarts where the in-memory deduplication cache is lost.
 
 ## Resource model
 
-Peer counts, metadata, event payloads, TTL, subscriptions, queues, deduplication memory, fan-out,
-and fan-out concurrency are explicitly bounded. A transport may impose a payload limit smaller than
-the core Bus limit; RNS Channel MDU is the effective limit for the RNS adapter.
+Discovery candidates, metadata, event payloads, TTL, queues, deduplication memory, and fan-out
+concurrency are explicitly bounded. Subscription and authenticated-peer counts have no artificial
+global cap. The RNS adapter uses Channel for messages within the negotiated MDU and transparently
+switches to Resource transfer for larger messages, so the core Bus payload budget remains reachable
+over RNS.

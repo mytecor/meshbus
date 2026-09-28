@@ -29,7 +29,9 @@ const (
 var (
 	// ErrInvalidPeer is returned when a peer record fails validation.
 	ErrInvalidPeer = errors.New("invalid discovered peer")
-	// ErrPeerLimit is returned when the directory is at capacity.
+	// ErrPeerLimit is retained for compatibility but is no longer returned.
+	// The oldest entry is evicted when a bounded directory reaches capacity.
+	// Deprecated: capacity is maintained by eviction.
 	ErrPeerLimit = errors.New("peer directory capacity reached")
 	// ErrMetadataLimit is returned when application metadata exceeds bounds.
 	ErrMetadataLimit = errors.New("peer metadata exceeds bound")
@@ -80,13 +82,16 @@ type DirectoryConfig struct {
 	MaxMetadataBytes int
 
 	now func() time.Time
+	// unbounded is used for realm-authenticated peers owned by Node. Discovery
+	// directories remain bounded by MaxPeers.
+	unbounded bool
 }
 
 func (c DirectoryConfig) apply() (DirectoryConfig, error) {
 	if c.MaxPeers < 0 || c.MaxMetadataBytes < 0 {
 		return DirectoryConfig{}, ErrInvalidDirectoryConfig
 	}
-	if c.MaxPeers == 0 {
+	if c.MaxPeers == 0 && !c.unbounded {
 		c.MaxPeers = defaultDirectoryMaxPeers
 	}
 	if c.MaxMetadataBytes == 0 {
@@ -98,11 +103,10 @@ func (c DirectoryConfig) apply() (DirectoryConfig, error) {
 	return c, nil
 }
 
-// PeerDirectory is a bounded, observable record of realm peers learned through
-// discovery. It remembers peers keyed by authenticated PeerID, updates an
-// existing peer, resolves a PeerID to its current transport route, returns a
-// bounded immutable snapshot for pub/sub fan-out, and removes or expires stale
-// entries. It is safe for concurrent use.
+// PeerDirectory is an observable record of realm peers learned through
+// discovery or authentication. Discovery directories are bounded with
+// oldest-first eviction; Node's authenticated directory is unbounded. It is
+// safe for concurrent use.
 type PeerDirectory struct {
 	config DirectoryConfig
 
@@ -124,9 +128,8 @@ func NewPeerDirectory(config DirectoryConfig) (*PeerDirectory, error) {
 
 // Remember adds or updates one discovered peer. An existing peer with the same
 // authenticated PeerID is updated in place instead of creating a duplicate.
-// The route may change while the identity stays stable. Returns ErrPeerLimit
-// when the directory is at capacity and the identity is new, and
-// ErrMetadataLimit when application metadata exceeds the configured bound.
+// The route may change while the identity stays stable. A bounded directory
+// evicts its oldest record when a new identity arrives at capacity.
 func (d *PeerDirectory) Remember(peer Peer) error {
 	if !peer.isValid() {
 		return fmt.Errorf("%w: identity is required and must be authenticated", ErrInvalidPeer)
@@ -143,8 +146,16 @@ func (d *PeerDirectory) Remember(peer Peer) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, exists := d.peers[peer.ID]; !exists && len(d.peers) >= d.config.MaxPeers {
-		return ErrPeerLimit
+	if _, exists := d.peers[peer.ID]; !exists && !d.config.unbounded && len(d.peers) >= d.config.MaxPeers {
+		var oldestID PeerID
+		var oldest Peer
+		for id, candidate := range d.peers {
+			if oldestID.IsZero() || candidate.LastSeen.Before(oldest.LastSeen) ||
+				(candidate.LastSeen.Equal(oldest.LastSeen) && bytes.Compare(id.Bytes(), oldestID.Bytes()) < 0) {
+				oldestID, oldest = id, candidate
+			}
+		}
+		delete(d.peers, oldestID)
 	}
 	d.peers[peer.ID] = peer
 	return nil
@@ -161,9 +172,8 @@ func (d *PeerDirectory) Get(id PeerID) (Peer, bool) {
 	return clonePeer(peer), true
 }
 
-// Peers returns an immutable, copy-safe snapshot of the known realm peers,
-// ordered by identity for deterministic fan-out. The result is capped at the
-// configured MaxPeers. Discovery is advisory only.
+// Peers returns an immutable, copy-safe snapshot ordered by identity for
+// deterministic fan-out. Discovery is advisory only.
 func (d *PeerDirectory) Peers() []Peer {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -177,8 +187,8 @@ func (d *PeerDirectory) Peers() []Peer {
 	return result
 }
 
-// IDs returns the bounded snapshot of peer identities used for pub/sub
-// fan-out, ordered by identity.
+// IDs returns the peer identity snapshot used for pub/sub fan-out, ordered by
+// identity.
 func (d *PeerDirectory) IDs() []PeerID {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

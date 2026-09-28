@@ -41,13 +41,12 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 	challenge := bytes.Clone(active.challenge)
 	active.mu.RUnlock()
 	if len(sender) == 0 {
-		data, err := message.Pack()
-		if err != nil {
-			return
-		}
 		active.mu.Lock()
-		if len(active.pendingAuth) < 8 {
-			active.pendingAuth = append(active.pendingAuth, data)
+		if active.pendingAuth == nil {
+			active.pendingAuth = make(map[byte]authMessage)
+		}
+		active.pendingAuth[message.kind] = authMessage{
+			kind: message.kind, nonce: bytes.Clone(message.nonce), proof: bytes.Clone(message.proof),
 		}
 		active.mu.Unlock()
 		return
@@ -74,6 +73,11 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 			return
 		}
 		e.completeAuthentication(active, nil)
+	case authKindReady:
+		active.mu.Lock()
+		active.peerReady = true
+		active.mu.Unlock()
+		active.readyOnce.Do(func() { close(active.readyDone) })
 	}
 }
 
@@ -91,14 +95,17 @@ func (e *Endpoint) completeAuthentication(active *session, err error) {
 		active.mu.Lock()
 		active.authErr = err
 		active.authenticated = err == nil
-		pending := active.pending
-		active.pending = nil
 		active.mu.Unlock()
 		close(active.authDone)
 		if err == nil {
 			e.notifyAuthenticated(active)
-			for _, data := range pending {
-				go e.deliver(active, data)
+			ctx, cancel := context.WithTimeout(context.Background(), e.networkWait)
+			readyErr := e.sendChannel(ctx, active, &authMessage{kind: authKindReady})
+			cancel()
+			if readyErr != nil {
+				e.reportPeerError(fmt.Errorf("send authentication ready: %w", readyErr))
+				active.link.Teardown()
+				return
 			}
 		}
 	})
@@ -131,6 +138,17 @@ func (e *Endpoint) waitAuthenticated(ctx context.Context, active *session) error
 			return err
 		}
 		if !authenticated {
+			return ErrRealmAuthentication
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-active.readyDone:
+		active.mu.RLock()
+		ready := active.peerReady
+		active.mu.RUnlock()
+		if !ready {
 			return ErrRealmAuthentication
 		}
 		return nil

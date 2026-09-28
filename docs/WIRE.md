@@ -32,14 +32,20 @@ length. Their order is significant.
 The RNS adapter reserves Channel message type `0x0100` for realm authentication and `0x0101` for
 opaque direct messages.
 
-An authentication message payload is:
+An authentication message payload is either:
 
 ```text
 kind:u8 | nonce:32 | proof:0-or-32
+kind:ready:u8
 ```
 
 Kind `1` is a challenge and has no proof. Kind `2` is a response and has a 32-byte Realm v1 proof.
-Opaque direct-message payloads are non-empty and bounded by the negotiated Channel MDU.
+Kind `3` is a one-byte ready message sent after local realm authentication succeeds. Application
+traffic starts only after the peer ready message arrives.
+
+Opaque messages up to the negotiated Channel MDU use Channel type `0x0101`. Larger messages use an
+RNS Resource on the same authenticated link. Completed Resources enter the same direct-message
+handler as Channel messages, so this choice is invisible to the core Bus and its callers.
 
 ## Presence `meshbus.v1`
 
@@ -69,9 +75,9 @@ offset  size  field
 40      ...   topic bytes, content-type bytes, payload bytes
 ```
 
-The event ID is non-zero. Topic and payload are non-empty. Topics are at most 128 bytes and contain
+The event ID and topic are non-zero; the payload may be empty. Topics are at most 128 bytes and contain
 ASCII letters, digits, `.`, `_`, or `-`, without empty dot-separated segments. Content type is at
-most 128 printable ASCII bytes. Default payload and TTL bounds are 64 KiB and one hour; a receiver
+most 128 printable ASCII bytes. Default payload and TTL bounds are 64 MiB and one hour; a receiver
 may configure smaller bounds.
 
 Expiry is the earlier of `published_at + TTL` and `received_at + TTL`, so a future publisher clock

@@ -12,6 +12,7 @@ import (
 	"github.com/Quad4-Software/Reticulum-Go/pkg/destination"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/identity"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/link"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/resource"
 	"github.com/mytecor/meshbus"
 	"github.com/mytecor/meshbus/realm"
 )
@@ -219,9 +220,6 @@ func (e *Endpoint) SendToDestination(ctx context.Context, target string, payload
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(payload) == 0 {
-		return fmt.Errorf("%w: payload is required", meshbus.ErrInvalidMessage)
-	}
 	destinationHash, key, err := parseDestination(target)
 	if err != nil {
 		return err
@@ -247,13 +245,37 @@ func (e *Endpoint) SendToDestination(ctx context.Context, target string, payload
 	if err := e.waitAuthenticated(ctx, active); err != nil {
 		return fmt.Errorf("authenticate RNS session: %w", err)
 	}
-	if len(payload) > active.channel.MDU() {
-		return fmt.Errorf("direct message: %d bytes exceed RNS Channel MDU %d", len(payload), active.channel.MDU())
+	if len(payload) <= active.channel.MDU() {
+		if err := e.sendChannel(ctx, active, &directMessage{data: bytes.Clone(payload)}); err != nil {
+			return fmt.Errorf("send RNS Channel message: %w", err)
+		}
+		return nil
 	}
-	if err := e.sendChannel(ctx, active, &directMessage{data: bytes.Clone(payload)}); err != nil {
-		return fmt.Errorf("send RNS Channel message: %w", err)
+	return e.sendResource(ctx, active, payload)
+}
+
+func (e *Endpoint) sendResource(ctx context.Context, active *session, payload []byte) error {
+	transfer, err := resource.New(bytes.Clone(payload), true)
+	if err != nil {
+		return fmt.Errorf("create RNS Resource: %w", err)
 	}
-	return nil
+	active.sendMu.Lock()
+	defer active.sendMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result := make(chan error, 1)
+	go func() { result <- active.link.SendResource(transfer) }()
+	select {
+	case err := <-result:
+		if err != nil {
+			return fmt.Errorf("send RNS Resource: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		transfer.Cancel()
+		return ctx.Err()
+	}
 }
 
 var _ meshbus.Sender = (*Endpoint)(nil)

@@ -13,6 +13,7 @@ const (
 	authProofSize            = realm.ProofSize
 	authKindChallenge byte   = 1
 	authKindResponse  byte   = 2
+	authKindReady     byte   = 3
 )
 
 type authMessage struct {
@@ -22,6 +23,12 @@ type authMessage struct {
 }
 
 func (m *authMessage) Pack() ([]byte, error) {
+	if m.kind == authKindReady {
+		if len(m.nonce) != 0 || len(m.proof) != 0 {
+			return nil, fmt.Errorf("ready must not contain authentication data")
+		}
+		return []byte{authKindReady}, nil
+	}
 	if len(m.nonce) != authNonceSize {
 		return nil, fmt.Errorf("invalid authentication nonce")
 	}
@@ -45,6 +52,12 @@ func (m *authMessage) Pack() ([]byte, error) {
 }
 
 func (m *authMessage) Unpack(data []byte) error {
+	if len(data) == 1 && data[0] == authKindReady {
+		m.kind = authKindReady
+		m.nonce = m.nonce[:0]
+		m.proof = m.proof[:0]
+		return nil
+	}
 	if len(data) != 1+authNonceSize && len(data) != 1+authNonceSize+authProofSize {
 		return fmt.Errorf("invalid authentication message length")
 	}

@@ -214,11 +214,14 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	}
 
 	extra, _ := NewPeerID([]byte{0xc3})
-	if err := nodeA.Authenticated(extra); !errors.Is(err, ErrPeerLimit) {
-		t.Fatalf("directory bound error=%v, want ErrPeerLimit", err)
+	if err := nodeA.Authenticated(extra); err != nil {
+		t.Fatalf("authenticated peer above candidate bound: %v", err)
 	}
-	if _, err := nodeB.Subscribe("second.event", func(context.Context, ReceivedEvent) error { return nil }); !errors.Is(err, ErrSubscriptionLimit) {
-		t.Fatalf("subscription bound error=%v, want ErrSubscriptionLimit", err)
+	if len(nodeA.Peers()) != 2 {
+		t.Fatalf("authenticated peers = %+v, want 2", nodeA.Peers())
+	}
+	if _, err := nodeB.Subscribe("second.event", func(context.Context, ReceivedEvent) error { return nil }); err != nil {
+		t.Fatalf("second subscription error=%v", err)
 	}
 }
 
@@ -271,7 +274,7 @@ func TestNodeValidatesComposition(t *testing.T) {
 	}
 }
 
-func TestNodeExpiresStaleCandidatesAndAuthenticatedPeers(t *testing.T) {
+func TestNodeExpiresCandidatesButKeepsAuthenticatedPeers(t *testing.T) {
 	var nowUnix atomic.Int64
 	nowUnix.Store(1_700_000_000)
 	network := newMemoryNetwork()
@@ -295,15 +298,22 @@ func TestNodeExpiresStaleCandidatesAndAuthenticatedPeers(t *testing.T) {
 	if err := node.Authenticated(peer); err != nil {
 		t.Fatal(err)
 	}
+	candidate, _ := NewPeerID([]byte{3})
+	if err := node.Discovered(Peer{ID: candidate}); err != nil {
+		t.Fatal(err)
+	}
 	if len(node.Peers()) != 1 {
 		t.Fatal("authenticated peer was not recorded")
 	}
 	nowUnix.Add(1)
 	deadline := time.Now().Add(time.Second)
-	for len(node.Peers()) != 0 && time.Now().Before(deadline) {
+	for len(node.DiscoveredPeers()) != 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if len(node.Peers()) != 0 {
-		t.Fatalf("stale authenticated peers = %+v", node.Peers())
+	if len(node.DiscoveredPeers()) != 0 {
+		t.Fatalf("stale candidates = %+v", node.DiscoveredPeers())
+	}
+	if len(node.Peers()) != 1 || node.Peers()[0].ID != peer {
+		t.Fatalf("authenticated peer expired = %+v", node.Peers())
 	}
 }
