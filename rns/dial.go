@@ -51,6 +51,7 @@ func (e *Endpoint) dial(ctx context.Context, destinationHash []byte) (*session, 
 			setupErr = value.Identify(e.identity)
 		}
 		if setupErr == nil {
+			active.senderOnce.Do(func() { close(active.senderReady) })
 			e.beginAuthentication(active)
 		}
 		if setupErr != nil {

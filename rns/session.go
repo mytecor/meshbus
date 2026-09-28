@@ -25,17 +25,10 @@ func (e *Endpoint) acceptLink(value any) {
 		}
 		active.mu.Lock()
 		active.sender = bytes.Clone(remote.Hash())
-		pendingAuth := active.pendingAuth
-		active.pendingAuth = make(map[byte]authMessage)
 		active.mu.Unlock()
 		e.connections.cacheSession(active, remote.Hash(), nil)
+		active.senderOnce.Do(func() { close(active.senderReady) })
 		e.beginAuthentication(active)
-		for _, kind := range []byte{authKindChallenge, authKindResponse, authKindReady} {
-			if message, exists := pendingAuth[kind]; exists {
-				message := message
-				go e.handleAuthentication(active, &message)
-			}
-		}
 	}
 	inbound.SetRemoteIdentifiedCallback(func(_ *link.Link, remote *identity.Identity) { authenticate(remote) })
 	authenticate(inbound.GetRemoteIdentity())
@@ -51,7 +44,7 @@ func (e *Endpoint) newSession(rnsLink *link.Link, sender, destinationHash []byte
 	}
 	active := &session{
 		link: rnsLink, channel: rnsChannel,
-		sender: bytes.Clone(sender), pendingAuth: make(map[byte]authMessage),
+		sender: bytes.Clone(sender), senderReady: make(chan struct{}),
 		authDone: make(chan struct{}), readyDone: make(chan struct{}),
 	}
 	if err := rnsLink.SetResourceStrategy(link.AcceptApp); err != nil {

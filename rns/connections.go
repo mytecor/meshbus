@@ -15,7 +15,8 @@ type session struct {
 	link          *link.Link
 	channel       *channel.Channel
 	sender        []byte
-	pendingAuth   map[byte]authMessage
+	senderReady   chan struct{}
+	senderOnce    sync.Once
 	challenge     []byte
 	authenticated bool
 	authErr       error
