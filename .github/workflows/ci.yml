@@ -26,5 +26,4 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
-      - run: go vet ./...
-      - run: go test -race ./...
+      - run: make check
