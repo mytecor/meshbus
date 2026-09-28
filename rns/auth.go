@@ -36,12 +36,8 @@ func (e *Endpoint) beginAuthentication(active *session) {
 }
 
 func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
-	active.mu.RLock()
-	sender := bytes.Clone(active.sender)
-	challenge := bytes.Clone(active.challenge)
-	active.mu.RUnlock()
-	if len(sender) == 0 {
-		active.mu.Lock()
+	active.mu.Lock()
+	if len(active.sender) == 0 {
 		if active.pendingAuth == nil {
 			active.pendingAuth = make(map[byte]authMessage)
 		}
@@ -51,6 +47,9 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 		active.mu.Unlock()
 		return
 	}
+	sender := bytes.Clone(active.sender)
+	challenge := bytes.Clone(active.challenge)
+	active.mu.Unlock()
 	switch message.kind {
 	case authKindChallenge:
 		proof, err := e.realm.Proof(message.nonce, sender, e.identity.Hash())

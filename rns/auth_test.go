@@ -50,6 +50,26 @@ func TestApplicationDataBeforeAuthenticationIsDropped(t *testing.T) {
 	}
 }
 
+func TestEarlyAuthenticationMessagesRemainBounded(t *testing.T) {
+	endpoint := &Endpoint{}
+	active := &session{}
+	for index := range 1000 {
+		endpoint.handleAuthentication(active, &authMessage{
+			kind:  authKindChallenge,
+			nonce: bytes.Repeat([]byte{byte(index)}, authNonceSize),
+		})
+	}
+	active.mu.RLock()
+	defer active.mu.RUnlock()
+	if len(active.pendingAuth) != 1 {
+		t.Fatalf("pending auth messages = %d, want 1 per message kind", len(active.pendingAuth))
+	}
+	want := bytes.Repeat([]byte{byte(999 % 256)}, authNonceSize)
+	if got := active.pendingAuth[authKindChallenge].nonce; !bytes.Equal(got, want) {
+		t.Fatalf("pending challenge nonce = %x, want latest %x", got, want)
+	}
+}
+
 func TestAuthReadyMessageRoundTrip(t *testing.T) {
 	want := &authMessage{kind: authKindReady}
 	data, err := want.Pack()
