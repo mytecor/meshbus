@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/channel"
 	"github.com/mytecor/meshbus"
@@ -42,20 +41,15 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 	challenge := bytes.Clone(active.challenge)
 	active.mu.RUnlock()
 	if len(sender) == 0 {
-		// The inbound link's remote identity may not be confirmed yet. Wait for
-		// it rather than buffering the message, so a late-arriving auth message
-		// can never be orphaned by a concurrent map swap in acceptLink.
-		select {
-		case <-active.senderReady:
-		case <-time.After(e.networkWait):
+		active.mu.Lock()
+		if active.pendingAuth == nil {
+			active.pendingAuth = make(map[byte]authMessage)
 		}
-		active.mu.RLock()
-		sender = bytes.Clone(active.sender)
-		challenge = bytes.Clone(active.challenge)
-		active.mu.RUnlock()
-		if len(sender) == 0 {
-			return
+		active.pendingAuth[message.kind] = authMessage{
+			kind: message.kind, nonce: bytes.Clone(message.nonce), proof: bytes.Clone(message.proof),
 		}
+		active.mu.Unlock()
+		return
 	}
 	switch message.kind {
 	case authKindChallenge:
