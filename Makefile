@@ -8,7 +8,7 @@ boundary-check:
 		exit 1; \
 	fi
 	@if go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' . ./realm \
-		| grep -Ev '^$$|^github.com/mytecor/meshbus(/realm)?$$' | grep -q .; then \
+		| grep -Ev '^$$|^github.com/mytecor/meshbus(/realm|/internal(/.*)?)?$$' | grep -q .; then \
 		echo "meshbus core and realm must depend only on the Go standard library"; \
 		exit 1; \
 	fi

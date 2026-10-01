@@ -50,7 +50,7 @@ Applications should use `PeerID` as the peer handle. RNS destination strings are
 
 ## Pub/sub
 
-Subscribe to an exact topic and publish opaque bytes:
+Subscribe to a subject pattern and publish opaque bytes:
 
 ```go
 _, err := node.Subscribe("build.completed", func(ctx context.Context, event meshbus.ReceivedEvent) error {
@@ -69,7 +69,17 @@ to suppress local delivery. `PublishResult` distinguishes attempted and successf
 per-peer failures, local delivery, and a local backpressure error. A partial failure is returned as
 a joined error after every accepted peer has been attempted.
 
-Topics are exact and case-sensitive. There are no wildcard subscriptions.
+Published subjects are concrete and case-sensitive. Subscription patterns accept NATS-style
+wildcards: `*` matches one segment, terminal `>` matches any non-empty suffix, and `>` by itself
+matches every subject. For example, `git.*` matches `git.push` but not `git.ref.updated`, while
+`git.>` matches both.
+
+Each node advertises only its own current patterns to authenticated peers. Interests are ephemeral
+soft state with a 60-second lease, renewed every 20 seconds by default. Subscribe announces a new
+interest immediately; closing the last matching subscription stops renewal and lets the remote
+entry expire. A newly authenticated peer is queried for its current interests. Publications are
+sent only to peers with a non-expired matching interest. Send failures do not remove peers or
+interests.
 
 ## Default bounds
 
@@ -81,7 +91,9 @@ Topics are exact and case-sensitive. There are no wildcard subscriptions.
 | Deduplication entries | 4096 |
 | Queue entries per subscription | 32 |
 | Subscriptions | No global cap; each has a bounded queue |
-| Fan-out peers | All authenticated peers |
+| Interest lease TTL | 60 seconds |
+| Interest renewal interval | 20 seconds |
+| Fan-out peers | Authenticated peers with a matching non-expired interest |
 | Concurrent sends | 8 |
 | Discovery candidates | 1024, oldest evicted at capacity |
 | Authenticated peers | No hard count limit |
@@ -110,7 +122,7 @@ Set `Passive` to suppress local announces while retaining discovery and outbound
 ## Error handling
 
 Public sentinel errors support `errors.Is`. In particular, callers can distinguish invalid input,
-unknown peers, lifecycle misuse, directory/subscription/fan-out limits, backpressure, closed buses,
+unknown peers, lifecycle misuse, resource bounds, backpressure, closed buses,
 invalid RNS destinations, missing shared instances, and realm-authentication failure.
 
 Subscription-handler and peer-observer errors are reported asynchronously through

@@ -4,6 +4,8 @@
 
 ```text
 ./                 transport-independent public meshbus package
+internal/subject/  shared topic grammar and wildcard matching
+internal/wire/     versioned event and interest binary codecs
 realm/             standard-library-only realm primitive
 rns/               public Reticulum adapter and its package-private mechanics
 docs/              architecture, usage, and wire contracts
@@ -15,6 +17,11 @@ integration/       black-box tests that consume only exported APIs
 The public core remains at the module root so consumers import `github.com/mytecor/meshbus` rather
 than an artificial `pkg/meshbus` or `core` suffix. Files move into a new package only when there is
 a real dependency boundary, not merely to reduce the number of files shown at the root.
+
+Within the public core, files follow responsibilities rather than types: `node.go` is the composition
+root, while lifecycle, peer observation, interest exchange, and the public forwarding API live in
+separate files. Bus publication, inbound delivery, and subscription workers follow the same split.
+The `internal` packages contain pure policy/codecs and cannot depend back on the public core.
 
 ## Layers
 
@@ -52,8 +59,9 @@ An identity serialized inside an opaque payload or presence metadata is never au
 - The transport adapter owns routes, active sessions, reconnects, and transport-specific limits.
 - `Node` bounds discovery candidates with oldest-first eviction and expires only stale candidates.
 - Authenticated peers have no hard count limit and do not expire merely because announces stop.
-- `Bus` owns in-memory subscriptions, bounded queues, event IDs, TTL handling, and bounded duplicate
-  suppression.
+- `Bus` owns in-memory subject-pattern subscriptions, bounded queues, event IDs, TTL handling, and
+  bounded duplicate suppression.
+- `Node` owns non-durable remote interest leases learned directly from each authenticated peer.
 - Applications own durable state, retries beyond one send, authorization, and idempotency.
 
 No network disconnect is treated as an application-lifetime signal.
@@ -61,10 +69,18 @@ No network disconnect is treated as an application-lifetime signal.
 ## Delivery model
 
 Direct messages are opaque authenticated bytes. Pub/sub wraps a bounded event frame in a direct
-message and fans it out once to the current authenticated peer snapshot. There is no forwarding,
-subscription advertisement, persistence, replay, acknowledgement journal, consumer group, offset,
-or exactly-once guarantee. Handlers must tolerate duplicate delivery, especially across process
-restarts where the in-memory deduplication cache is lost.
+message and sends it once to authenticated peers whose non-expired leased patterns match the
+concrete subject. Local dispatch uses the same wildcard matcher. Each peer advertises only its own
+subscriptions: immediately on subscribe, in response to a current-interest query, and through
+periodic renewal. Closing a subscription sends no withdrawal; the old route ages out at lease
+expiry. There is no forwarding, durable subscription state, revisions, replay, acknowledgement
+journal, consumer group, offset, or exactly-once guarantee. Lost and reordered renewals converge
+through the next renewal and lease expiry.
+
+Transport send failure is not a liveness signal. Peer discovery/session liveness and subscription
+liveness remain separate; only an expired interest lease stops routing for that pattern. Higher-level
+request/reply helpers, including RPC, are expected to use ordinary subjects and subscriptions rather
+than define a parallel transport protocol.
 
 ## Resource model
 
@@ -72,4 +88,7 @@ Discovery candidates, metadata, event payloads, TTL, queues, deduplication memor
 concurrency are explicitly bounded. Subscription and authenticated-peer counts have no artificial
 global cap. The RNS adapter uses Channel for messages within the negotiated MDU and transparently
 switches to Resource transfer for larger messages, so the core Bus payload budget remains reachable
-over RNS.
+over RNS. Reticulum-Go provides Channel sequencing, duplicate suppression, buffering,
+retransmission, and its own Channel/Resource send synchronization; meshbus adds no generic ordering
+layer or session-wide send mutex. Ordering across Channel and Resource payloads is not an
+application-level contract.

@@ -216,16 +216,15 @@ func TestPeerDirectoryDeterministicSnapshot(t *testing.T) {
 	}
 }
 
-// IDs() feeds the Bus PeerSource fan-out without transport routes.
-func TestPeerDirectoryIDsFeedBus(t *testing.T) {
+// IDs() exposes authenticated identities without transport routes.
+func TestPeerDirectoryIDsSnapshot(t *testing.T) {
 	directory := testDirectory(DirectoryConfig{})
 	for id, route := range map[byte]string{0x01: "dest-a", 0x02: "dest-b"} {
 		if err := directory.Remember(testPeer(id, route)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	source := PeerSourceFunc(directory.IDs)
-	got := source.Peers()
+	got := directory.IDs()
 	if len(got) != 2 {
 		t.Fatalf("IDs() len = %d, want 2", len(got))
 	}

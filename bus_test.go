@@ -43,9 +43,9 @@ func busTestPeer(value string) PeerID {
 func newTestBus(t *testing.T, sender Sender, peers []PeerID, now *time.Time, update func(*BusConfig)) *Bus {
 	t.Helper()
 	config := BusConfig{
-		Sender: sender,
-		Peers:  PeerSourceFunc(func() []PeerID { return append([]PeerID(nil), peers...) }),
-		clock:  func() time.Time { return *now },
+		Sender:    sender,
+		Interests: InterestSourceFunc(func(string) []PeerID { return append([]PeerID(nil), peers...) }),
+		clock:     func() time.Time { return *now },
 	}
 	if update != nil {
 		update(&config)
@@ -162,6 +162,84 @@ func TestHandleMessageUsesAuthenticatedSenderAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestWildcardSubscriptionsMatchSubjects(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	bus := newTestBus(t, &recordingSender{}, nil, &now, nil)
+
+	tests := []struct {
+		pattern string
+		matches []string
+		misses  []string
+	}{
+		{pattern: "foo.bar", matches: []string{"foo.bar"}, misses: []string{"foo.baz", "foo.bar.baz"}},
+		{pattern: "foo.*", matches: []string{"foo.bar", "foo.baz"}, misses: []string{"foo", "foo.bar.baz"}},
+		{pattern: "foo.>", matches: []string{"foo.bar", "foo.bar.baz"}, misses: []string{"foo", "bar.foo"}},
+		{pattern: ">", matches: []string{"foo", "foo.bar"}},
+	}
+	for _, test := range tests {
+		for _, topic := range test.matches {
+			if !matchPattern(test.pattern, topic) {
+				t.Errorf("pattern %q did not match %q", test.pattern, topic)
+			}
+		}
+		for _, topic := range test.misses {
+			if matchPattern(test.pattern, topic) {
+				t.Errorf("pattern %q unexpectedly matched %q", test.pattern, topic)
+			}
+		}
+	}
+
+	received := make(chan string, 4)
+	for _, pattern := range []string{"jobs.*", "jobs.>", ">"} {
+		pattern := pattern
+		if _, err := bus.Subscribe(pattern, func(_ context.Context, event ReceivedEvent) error {
+			received <- pattern
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	event := Event{ID: EventID{1}, Topic: "jobs.build.done", PublishedAt: now, TTL: time.Minute}
+	wire, err := encodeEvent(event, defaultMaxEventPayload, defaultMaxEventTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, _ := NewReceivedMessage([]byte{1}, wire)
+	if _, err := bus.HandleMessage(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for range 2 {
+		select {
+		case pattern := <-received:
+			got[pattern] = true
+		case <-time.After(time.Second):
+			t.Fatal("wildcard event was not dispatched")
+		}
+	}
+	if !got["jobs.>"] || !got[">"] || got["jobs.*"] {
+		t.Fatalf("matching subscriptions = %v", got)
+	}
+}
+
+func TestTopicAndPatternValidationAreSeparate(t *testing.T) {
+	for _, topic := range []string{"foo.*", "foo.>", ">"} {
+		if !errors.Is(validateTopic(topic), ErrInvalidTopic) {
+			t.Errorf("validateTopic(%q) did not reject wildcard", topic)
+		}
+	}
+	for _, pattern := range []string{"foo.bar", "foo.*", "foo.>", ">"} {
+		if err := validatePattern(pattern); err != nil {
+			t.Errorf("validatePattern(%q) = %v", pattern, err)
+		}
+	}
+	for _, pattern := range []string{"foo.>.*", "foo*", "foo.>.bar", "foo..bar"} {
+		if !errors.Is(validatePattern(pattern), ErrInvalidPattern) {
+			t.Errorf("validatePattern(%q) was accepted", pattern)
+		}
+	}
+}
+
 func TestExpiredEventAndNonEventAreNotDispatched(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	bus := newTestBus(t, &recordingSender{}, nil, &now, nil)
@@ -238,12 +316,10 @@ func TestSubscriptionQueueAppliesBackpressure(t *testing.T) {
 	close(release)
 }
 
-func TestBusDoesNotCapSubscriptionsOrFanoutAndRejectsInvalidWire(t *testing.T) {
+func TestBusHandlesMultipleSubscriptionsAndDestinationsAndRejectsInvalidWire(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	sender := &recordingSender{}
 	bus := newTestBus(t, sender, []PeerID{busTestPeer("a"), busTestPeer("b")}, &now, func(config *BusConfig) {
-		config.MaxSubscriptions = 1
-		config.MaxFanoutPeers = 1
 		config.FanoutConcurrency = 1
 		config.idSource = bytes.NewReader(bytes.Repeat([]byte{1}, 32))
 	})

@@ -5,24 +5,20 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
+
+	"github.com/mytecor/meshbus/internal/subject"
+	"github.com/mytecor/meshbus/internal/wire"
 )
 
-const MaxTopicBytes = 128
+const MaxTopicBytes = subject.MaxBytes
 
 var (
-	ErrInvalidEvent      = errors.New("invalid event")
-	ErrInvalidTopic      = errors.New("invalid event topic")
+	ErrInvalidEvent      = wire.ErrInvalidFrame
+	ErrInvalidTopic      = subject.ErrInvalidTopic
+	ErrInvalidPattern    = subject.ErrInvalidPattern
 	ErrEventBackpressure = errors.New("event subscription queue is full")
-	// ErrSubscriptionLimit is retained for compatibility but is no longer returned.
-	// Deprecated: subscriptions are not globally capped.
-	ErrSubscriptionLimit = errors.New("event subscription limit reached")
-	// ErrFanoutLimit is retained for compatibility but is no longer returned.
-	// Deprecated: fan-out concurrency bounds resource use instead.
-	ErrFanoutLimit = errors.New("event fan-out peer limit exceeded")
-	ErrBusClosed   = errors.New("event bus is closed")
+	ErrBusClosed         = errors.New("event bus is closed")
 )
 
 // EventID is a publisher-generated 128-bit identifier used for bounded
@@ -30,8 +26,6 @@ var (
 type EventID [16]byte
 
 func (id EventID) String() string { return hex.EncodeToString(id[:]) }
-
-func (id EventID) isZero() bool { return id == EventID{} }
 
 // Event is the transport-neutral event data. PublishedAt and other serialized
 // fields are metadata; ReceivedEvent.Sender is the authoritative peer.
@@ -78,18 +72,15 @@ type PublishResult struct {
 }
 
 func validateTopic(topic string) error {
-	if len(topic) == 0 || len(topic) > MaxTopicBytes || strings.HasPrefix(topic, ".") ||
-		strings.HasSuffix(topic, ".") || strings.Contains(topic, "..") {
-		return fmt.Errorf("%w: expected 1-%d bytes in dot-separated segments", ErrInvalidTopic, MaxTopicBytes)
-	}
-	for _, character := range []byte(topic) {
-		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return fmt.Errorf("%w: unsupported byte %q", ErrInvalidTopic, character)
-	}
-	return nil
+	return subject.ValidateTopic(topic)
+}
+
+func validatePattern(pattern string) error {
+	return subject.ValidatePattern(pattern)
+}
+
+func matchPattern(pattern, topic string) bool {
+	return subject.Match(pattern, topic)
 }
 
 func cloneEvent(event Event) Event {

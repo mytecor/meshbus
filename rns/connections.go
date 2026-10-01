@@ -11,7 +11,6 @@ import (
 
 type session struct {
 	mu            sync.RWMutex
-	sendMu        sync.Mutex
 	link          *link.Link
 	channel       *channel.Channel
 	sender        []byte

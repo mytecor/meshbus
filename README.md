@@ -14,8 +14,9 @@ Reticulum adapter and is the only package that depends on Reticulum-Go.
 - The sender exposed to an application always comes from the authenticated transport session.
 - Serialized payload identities are never authoritative.
 - Discovery metadata is advisory and bounded.
-- Pub/sub is in-memory, TTL-bounded, deduplicated, and best-effort; it has no replay, forwarding,
-  offsets, consumer groups, or exactly-once guarantee.
+- Pub/sub uses concrete subjects, wildcard subscriptions, and ephemeral leased peer interests. It
+  is in-memory, TTL-bounded, deduplicated, and best-effort, with no replay, forwarding, offsets,
+  consumer groups, or exactly-once guarantee.
 - Transport routes remain adapter-private; applications address `PeerID` values.
 
 ## Install
@@ -56,8 +57,8 @@ if err := node.Start(ctx); err != nil {
 ```
 
 An announce creates an advisory candidate in `DiscoveredPeers`. A successful realm-authenticated
-session promotes that identity into `Peers`; only promoted peers receive pub/sub fan-out. A direct
-`Send` to a discovered candidate can establish that first session.
+session promotes that identity into `Peers`; publications go only to promoted peers with a matching
+non-expired interest. A direct `Send` to a discovered candidate can establish that first session.
 
 See [Usage](./docs/USAGE.md) for direct messaging, pub/sub, lifecycle, defaults, and RNS modes.
 A buildable shared-instance program lives in

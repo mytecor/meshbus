@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,8 +236,8 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		portB = freeUDPPort(t)
 	}
 	root := t.TempDir()
-	directB := make(chan meshbus.ReceivedMessage, 1)
-	directContexts := make(chan context.Context, 1)
+	directB := make(chan meshbus.ReceivedMessage, 16)
+	directContexts := make(chan context.Context, 16)
 	eventsB := make(chan meshbus.ReceivedEvent, 1)
 	nodeA, err := NewNode(NodeConfig{Endpoint: Config{
 		StackMode: StackStandalone, Reticulum: standaloneConfig(filepath.Join(root, "node-a"), portA, portB), EphemeralIdentity: true,
@@ -315,8 +316,19 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		state ^= state << 5
 		largePayload[index] = byte(state)
 	}
-	if _, err := nodeA.Publish(ctx, "rns.node.event", largePayload, meshbus.PublishOptions{}); err != nil {
-		t.Fatal(err)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		result, publishErr := nodeA.Publish(ctx, "rns.node.event", largePayload, meshbus.PublishOptions{})
+		if publishErr != nil {
+			t.Fatal(publishErr)
+		}
+		if result.Attempted == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote RNS interest was not reconciled")
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 	select {
 	case event := <-eventsB:
@@ -325,6 +337,38 @@ func TestNodeAPIUsesRNSDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("large Node event was not delivered over RNS Resource")
+	}
+
+	// Channel and Resource implement their own send synchronization. Exercise
+	// both concurrently without imposing cross-mechanism application ordering.
+	const concurrentSends = 6
+	sendErrors := make(chan error, concurrentSends)
+	var sends sync.WaitGroup
+	for index := range concurrentSends {
+		index := index
+		sends.Add(1)
+		go func() {
+			defer sends.Done()
+			payload := []byte(fmt.Sprintf("concurrent-%d", index))
+			if index%2 != 0 {
+				payload = bytes.Repeat([]byte{byte(index + 1)}, 16*1024+index)
+			}
+			if sendErr := nodeA.Send(ctx, peerB, payload); sendErr != nil {
+				sendErrors <- sendErr
+			}
+		}()
+	}
+	sends.Wait()
+	close(sendErrors)
+	for sendErr := range sendErrors {
+		t.Errorf("concurrent send: %v", sendErr)
+	}
+	for range concurrentSends {
+		select {
+		case <-directB:
+		case <-time.After(15 * time.Second):
+			t.Fatal("concurrent direct message was not delivered")
+		}
 	}
 	handlerContext := <-directContexts
 	cancel()
@@ -442,7 +486,6 @@ func TestReconnectAfterLinkLoss(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("first direct message not delivered")
 	}
-
 	// Tear the outbound link and path so a later send must reconnect.
 	destinationHash, key, err := parseDestination(route)
 	if err != nil {

@@ -11,13 +11,15 @@ import (
 // endpoint Handler must be left nil because Node installs its composed pub/sub
 // and direct-message handler.
 type NodeConfig struct {
-	Endpoint      Config
-	DirectHandler meshbus.Handler
-	Bus           meshbus.BusConfig
-	Directory     meshbus.DirectoryConfig
-	PeerTTL       time.Duration
-	SweepInterval time.Duration
-	OnPeerError   func(error)
+	Endpoint              Config
+	DirectHandler         meshbus.Handler
+	Bus                   meshbus.BusConfig
+	Directory             meshbus.DirectoryConfig
+	PeerTTL               time.Duration
+	SweepInterval         time.Duration
+	InterestLeaseTTL      time.Duration
+	InterestRenewInterval time.Duration
+	OnPeerError           func(error)
 }
 
 // NewNode constructs a cohesive meshbus Node backed by this RNS adapter.
@@ -34,12 +36,14 @@ func NewNode(config NodeConfig) (*meshbus.Node, error) {
 		}
 	}
 	return meshbus.NewNode(meshbus.NodeConfig{
-		DirectHandler: config.DirectHandler,
-		Bus:           config.Bus,
-		Directory:     directory,
-		PeerTTL:       config.PeerTTL,
-		SweepInterval: config.SweepInterval,
-		OnPeerError:   config.OnPeerError,
+		DirectHandler:         config.DirectHandler,
+		Bus:                   config.Bus,
+		Directory:             directory,
+		PeerTTL:               config.PeerTTL,
+		SweepInterval:         config.SweepInterval,
+		InterestLeaseTTL:      config.InterestLeaseTTL,
+		InterestRenewInterval: config.InterestRenewInterval,
+		OnPeerError:           config.OnPeerError,
 		Transport: func(handler meshbus.Handler) (meshbus.NodeTransport, error) {
 			endpointConfig := config.Endpoint
 			endpointConfig.DirectoryConfig = DirectoryConfig{

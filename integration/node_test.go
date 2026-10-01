@@ -120,8 +120,19 @@ func TestPublicNodeAPIFromExternalPackage(t *testing.T) {
 	if err := nodeA.Send(ctx, nodeB.Identity(), []byte("authenticate")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{}); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		result, publishErr := nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{})
+		if publishErr != nil {
+			t.Fatal(publishErr)
+		}
+		if result.Attempted == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("remote interest was not reconciled")
+		}
+		time.Sleep(time.Millisecond)
 	}
 	select {
 	case event := <-events:
@@ -152,7 +163,13 @@ func ExampleNode() {
 		received <- event
 		return nil
 	})
-	_, _ = nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{})
+	for {
+		result, _ := nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{})
+		if result.Attempted != 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	event := <-received
 	fmt.Printf("%s: %s\n", event.Sender, event.Payload)
 	// Output: 01: hello

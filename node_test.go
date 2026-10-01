@@ -122,7 +122,7 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	directB := make(chan ReceivedMessage, 1)
 	nodeA, err := NewNode(NodeConfig{
 		Transport: network.factory(0xa1, &transportA),
-		Bus:       BusConfig{MaxSubscriptions: 1, MaxFanoutPeers: 1, FanoutConcurrency: 1},
+		Bus:       BusConfig{FanoutConcurrency: 1},
 		Directory: DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8},
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 			directB <- message
 			return nil
 		},
-		Bus:       BusConfig{MaxSubscriptions: 1, MaxFanoutPeers: 1, FanoutConcurrency: 1},
+		Bus:       BusConfig{FanoutConcurrency: 1},
 		Directory: DirectoryConfig{MaxPeers: 1, MaxMetadataBytes: 8},
 	})
 	if err != nil {
@@ -222,6 +222,90 @@ func TestNodeComposesDiscoveryDirectMessagesAndPubSub(t *testing.T) {
 	}
 	if _, err := nodeB.Subscribe("second.event", func(context.Context, ReceivedEvent) error { return nil }); err != nil {
 		t.Fatalf("second subscription error=%v", err)
+	}
+}
+
+func TestNodeRoutesOnlyToLeasedWildcardInterests(t *testing.T) {
+	network := newMemoryNetwork()
+	var transportA, transportB *memoryNodeTransport
+	var nowUnix atomic.Int64
+	nowUnix.Store(1_700_000_000)
+	clock := func() time.Time { return time.Unix(nowUnix.Load(), 0).UTC() }
+	config := func(identity byte, capture **memoryNodeTransport) NodeConfig {
+		return NodeConfig{
+			Transport:        network.factory(identity, capture),
+			Bus:              BusConfig{clock: clock},
+			InterestLeaseTTL: time.Minute, InterestRenewInterval: time.Millisecond,
+		}
+	}
+	nodeA, err := NewNode(config(0xa1, &transportA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nodeA.Close()
+	nodeB, err := NewNode(config(0xb2, &transportB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nodeB.Close()
+	ctx := context.Background()
+	if err := nodeA.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := nodeB.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := transportA.discover(transportB, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := nodeA.Send(ctx, transportB.id, []byte("authenticate")); err != nil {
+		t.Fatal(err)
+	}
+
+	if result, err := nodeA.Publish(ctx, "git.ref", nil, PublishOptions{RemoteOnly: true}); err != nil || result.Attempted != 0 {
+		t.Fatalf("uninterested publish result=%+v error=%v", result, err)
+	}
+	received := make(chan ReceivedEvent, 1)
+	subscription, err := nodeB.Subscribe("git.*", func(_ context.Context, event ReceivedEvent) error {
+		received <- event
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := nodeA.Publish(ctx, "git.ref", []byte("match"), PublishOptions{RemoteOnly: true})
+	if err != nil || result.Attempted != 1 || result.Delivered != 1 {
+		t.Fatalf("matching publish result=%+v error=%v", result, err)
+	}
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("matching event was not delivered")
+	}
+	if result, err := nodeA.Publish(ctx, "git.ref.updated", nil, PublishOptions{RemoteOnly: true}); err != nil || result.Attempted != 0 {
+		t.Fatalf("single-segment wildcard routed suffix result=%+v error=%v", result, err)
+	}
+	nowUnix.Add(59)
+	time.Sleep(10 * time.Millisecond)
+	nowUnix.Add(2)
+	if result, err := nodeA.Publish(ctx, "git.ref", []byte("renewed"), PublishOptions{RemoteOnly: true}); err != nil || result.Attempted != 1 {
+		t.Fatalf("periodically renewed interest result=%+v error=%v", result, err)
+	}
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("event after periodic interest renewal was not delivered")
+	}
+
+	if err := subscription.Close(); err != nil {
+		t.Fatal(err)
+	}
+	nowUnix.Add(61)
+	if result, err := nodeA.Publish(ctx, "git.ref", nil, PublishOptions{RemoteOnly: true}); err != nil || result.Attempted != 0 {
+		t.Fatalf("expired interest publish result=%+v error=%v", result, err)
+	}
+	if len(nodeA.Peers()) != 1 {
+		t.Fatalf("interest expiry removed authenticated peer: %+v", nodeA.Peers())
 	}
 }
 

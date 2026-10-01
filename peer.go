@@ -29,10 +29,6 @@ const (
 var (
 	// ErrInvalidPeer is returned when a peer record fails validation.
 	ErrInvalidPeer = errors.New("invalid discovered peer")
-	// ErrPeerLimit is retained for compatibility but is no longer returned.
-	// The oldest entry is evicted when a bounded directory reaches capacity.
-	// Deprecated: capacity is maintained by eviction.
-	ErrPeerLimit = errors.New("peer directory capacity reached")
 	// ErrMetadataLimit is returned when application metadata exceeds bounds.
 	ErrMetadataLimit = errors.New("peer metadata exceeds bound")
 	// ErrInvalidDirectoryConfig is returned for negative resource bounds.
@@ -248,6 +244,3 @@ func clonePeer(peer Peer) Peer {
 	peer.Metadata = cloneMetadata(peer.Metadata)
 	return peer
 }
-
-// Ensure the directory provides the bounded identity snapshot the Bus consumes.
-var _ = PeerSourceFunc((*PeerDirectory)(nil).IDs)

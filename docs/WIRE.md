@@ -75,16 +75,34 @@ offset  size  field
 40      ...   topic bytes, content-type bytes, payload bytes
 ```
 
-The event ID and topic are non-zero; the payload may be empty. Topics are at most 128 bytes and contain
-ASCII letters, digits, `.`, `_`, or `-`, without empty dot-separated segments. Content type is at
-most 128 printable ASCII bytes. Default payload and TTL bounds are 64 MiB and one hour; a receiver
-may configure smaller bounds.
+The event ID and topic are non-zero; the payload may be empty. Published topics are concrete: they
+are at most 128 bytes and contain ASCII letters, digits, `.`, `_`, or `-`, without empty
+dot-separated segments or wildcard tokens. Content type is at most 128 printable ASCII bytes.
+Default payload and TTL bounds are 64 MiB and one hour; a receiver may configure smaller bounds.
 
 Expiry is the earlier of `published_at + TTL` and `received_at + TTL`, so a future publisher clock
 cannot extend the receiver's retention window.
+
+## Interest `MBI` v1
+
+Interest control frames are authenticated direct messages. They never carry a peer identity and
+describe only the sending peer's own local subscriptions.
+
+```text
+query: magic:"MBI\x01" | kind:1
+renew: magic:"MBI\x01" | kind:2 | lease_ms:u32 | count:u16 |
+       repeated(count) { pattern_length:u16 | pattern_bytes }
+```
+
+A query asks the receiver to renew all of its current patterns. A renew is idempotent and refreshes
+each listed pattern through `received_at + min(lease_ms, local_max_lease)`. Patterns omitted from a
+renewal are not withdrawn; they retain their prior expiry. An empty renew is invalid, while a query
+needs no response when the receiver has no subscriptions. More than 65,535 current patterns are
+split across independent renew frames. There are no subscription revisions, withdrawal messages,
+third-party advertisements, or durable interest records.
 
 ## Compatibility
 
 The Go API remains pre-v1. The wire markers and domain separators documented here are stable:
 incompatible changes require a new domain separator, presence protocol value, event magic version,
-or Channel message type. Existing meanings are never silently reassigned.
+or control-frame version. Existing meanings are never silently reassigned.

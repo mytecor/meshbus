@@ -81,12 +81,18 @@ func (e *Endpoint) handleAuthentication(active *session, message *authMessage) {
 }
 
 func (e *Endpoint) sendChannel(ctx context.Context, active *session, message channel.MessageBase) error {
-	active.sendMu.Lock()
-	defer active.sendMu.Unlock()
-	if err := active.channel.WaitReady(ctx); err != nil {
-		return err
+	for {
+		if err := active.channel.WaitReady(ctx); err != nil {
+			return err
+		}
+		err := active.channel.Send(message)
+		if !errors.Is(err, channel.ErrLinkNotReady) {
+			return err
+		}
+		// Another concurrent sender may consume the available TX-window slot
+		// between WaitReady and Send. Channel owns serialization; retry the
+		// readiness check instead of adding a second session-wide mutex.
 	}
-	return active.channel.Send(message)
 }
 
 func (e *Endpoint) completeAuthentication(active *session, err error) {
