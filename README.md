@@ -1,8 +1,6 @@
 # meshbus
 
-[![CI](https://github.com/mytecor/meshbus/actions/workflows/ci.yml/badge.svg)](https://github.com/mytecor/meshbus/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/mytecor/meshbus/core.svg)](https://pkg.go.dev/github.com/mytecor/meshbus/core)
-[![Release](https://img.shields.io/github/v/tag/mytecor/meshbus.svg)](https://github.com/mytecor/meshbus/releases)
+[![Release](https://img.shields.io/github/v/release/mytecor/meshbus?sort=semver&style=for-the-badge&label=Release&color=151515)](https://github.com/mytecor/meshbus/releases/latest)[![CI](https://img.shields.io/github/actions/workflow/status/mytecor/meshbus/ci.yml?branch=main&style=for-the-badge&label=CI&color=151515)](https://github.com/mytecor/meshbus/actions/workflows/ci.yml)![Go](https://img.shields.io/badge/Go-1.27.1-151515?logo=go&style=for-the-badge)
 
 `meshbus` is a small brokerless messaging layer for authenticated peers. It provides shared-secret
 realm membership, bounded peer discovery, opaque direct messages, and best-effort one-hop pub/sub.
