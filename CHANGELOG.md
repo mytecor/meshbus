@@ -6,8 +6,9 @@
 - Added direct, leased interest query/renewal and routed publications only to matching peers.
 - Removed the redundant RNS session-wide send mutex and covered concurrent Channel/Resource sends.
 - Expanded standalone documentation and continuous verification.
-- Organized package documentation, examples, integration tests, and RNS configuration by role
-  without changing public import paths.
+- Reorganized the public API into `core`, `security/realm`, and `transport/rns`; the old root,
+  `realm`, and `rns` import paths were intentionally removed.
+- Grouped topic grammar and binary codecs under `internal/protocol`.
 
 ## v0.1.0 — 2026-09-28
 

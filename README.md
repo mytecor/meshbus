@@ -1,13 +1,14 @@
 # meshbus
 
 [![CI](https://github.com/mytecor/meshbus/actions/workflows/ci.yml/badge.svg)](https://github.com/mytecor/meshbus/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/mytecor/meshbus.svg)](https://pkg.go.dev/github.com/mytecor/meshbus)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mytecor/meshbus/core.svg)](https://pkg.go.dev/github.com/mytecor/meshbus/core)
 
 `meshbus` is a small brokerless messaging layer for authenticated peers. It provides shared-secret
 realm membership, bounded peer discovery, opaque direct messages, and best-effort one-hop pub/sub.
 
-The core package and [`realm`](./realm) use only the Go standard library. [`rns`](./rns) is the
-Reticulum adapter and is the only package that depends on Reticulum-Go.
+The [`core`](./core) and [`realm`](./security/realm) packages use only the Go standard library.
+[`rns`](./transport/rns) is the Reticulum adapter and is the only package that depends on
+Reticulum-Go.
 
 ## Guarantees
 
@@ -22,7 +23,8 @@ Reticulum adapter and is the only package that depends on Reticulum-Go.
 ## Install
 
 ```sh
-go get github.com/mytecor/meshbus@v0.1.0
+go get github.com/mytecor/meshbus/core@latest
+go get github.com/mytecor/meshbus/transport/rns@latest
 ```
 
 ## Quick start
@@ -41,7 +43,7 @@ node, err := rns.NewNode(rns.NodeConfig{
             "service": "example",
         },
     },
-    DirectHandler: func(ctx context.Context, message meshbus.ReceivedMessage) error {
+    DirectHandler: func(ctx context.Context, message core.ReceivedMessage) error {
         log.Printf("direct message from %s: %s", message.Sender(), message.Payload())
         return nil
     },
@@ -66,10 +68,10 @@ A buildable shared-instance program lives in
 
 ## Packages
 
-- `github.com/mytecor/meshbus` — transport-independent identities, peer directory, Node, direct
+- `github.com/mytecor/meshbus/core` — transport-independent identities, peer directory, Node, direct
   messaging, and bounded pub/sub.
-- `github.com/mytecor/meshbus/realm` — standard-library-only realm IDs and mutual proofs.
-- `github.com/mytecor/meshbus/rns` — Reticulum discovery, Links, realm authentication, Channels,
+- `github.com/mytecor/meshbus/security/realm` — standard-library-only realm IDs and mutual proofs.
+- `github.com/mytecor/meshbus/transport/rns` — Reticulum discovery, Links, realm authentication, Channels,
   sessions, and identity-to-destination routing.
 
 ## Documentation

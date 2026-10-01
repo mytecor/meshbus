@@ -53,12 +53,12 @@ Applications should use `PeerID` as the peer handle. RNS destination strings are
 Subscribe to a subject pattern and publish opaque bytes:
 
 ```go
-_, err := node.Subscribe("build.completed", func(ctx context.Context, event meshbus.ReceivedEvent) error {
+_, err := node.Subscribe("build.completed", func(ctx context.Context, event core.ReceivedEvent) error {
     log.Printf("event from %s: %s", event.Sender, event.Payload)
     return nil
 })
 
-result, err := node.Publish(ctx, "build.completed", payload, meshbus.PublishOptions{
+result, err := node.Publish(ctx, "build.completed", payload, core.PublishOptions{
     TTL:         30 * time.Second,
     ContentType: "application/json",
 })

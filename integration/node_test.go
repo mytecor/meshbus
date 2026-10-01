@@ -1,4 +1,4 @@
-package meshbus_test
+package integration_test
 
 import (
 	"context"
@@ -8,29 +8,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mytecor/meshbus"
+	"github.com/mytecor/meshbus/core"
 )
 
 type externalNetwork struct {
 	mu    sync.RWMutex
-	nodes map[meshbus.PeerID]*externalTransport
+	nodes map[core.PeerID]*externalTransport
 }
 
 type externalTransport struct {
+	mu       sync.RWMutex
 	network  *externalNetwork
-	id       meshbus.PeerID
-	handler  meshbus.Handler
-	observer meshbus.PeerObserver
+	id       core.PeerID
+	handler  core.Handler
+	observer core.PeerObserver
 	started  bool
 }
 
 func newExternalNetwork() *externalNetwork {
-	return &externalNetwork{nodes: make(map[meshbus.PeerID]*externalTransport)}
+	return &externalNetwork{nodes: make(map[core.PeerID]*externalTransport)}
 }
 
-func (n *externalNetwork) factory(identity byte, captured **externalTransport) meshbus.TransportFactory {
-	return func(handler meshbus.Handler) (meshbus.NodeTransport, error) {
-		id, err := meshbus.NewPeerID([]byte{identity})
+func (n *externalNetwork) factory(identity byte, captured **externalTransport) core.TransportFactory {
+	return func(handler core.Handler) (core.NodeTransport, error) {
+		id, err := core.NewPeerID([]byte{identity})
 		if err != nil {
 			return nil, err
 		}
@@ -43,56 +44,74 @@ func (n *externalNetwork) factory(identity byte, captured **externalTransport) m
 	}
 }
 
-func (t *externalTransport) Identity() meshbus.PeerID { return t.id }
+func (t *externalTransport) Identity() core.PeerID { return t.id }
 
-func (t *externalTransport) SetPeerObserver(observer meshbus.PeerObserver) error {
+func (t *externalTransport) SetPeerObserver(observer core.PeerObserver) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.observer = observer
 	return nil
 }
 
 func (t *externalTransport) Start(context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.started = true
 	return nil
 }
 
 func (t *externalTransport) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.started = false
 	return nil
 }
 
-func (t *externalTransport) SendMessage(ctx context.Context, peer meshbus.PeerID, payload []byte) error {
+func (t *externalTransport) SendMessage(ctx context.Context, peer core.PeerID, payload []byte) error {
 	t.network.mu.RLock()
 	target := t.network.nodes[peer]
 	t.network.mu.RUnlock()
-	if !t.started || target == nil || !target.started {
+	if target == nil {
 		return errors.New("peer unavailable")
 	}
-	if err := t.observer.Authenticated(target.id); err != nil {
+	t.mu.RLock()
+	started, observer := t.started, t.observer
+	t.mu.RUnlock()
+	target.mu.RLock()
+	targetStarted, targetObserver, targetHandler := target.started, target.observer, target.handler
+	target.mu.RUnlock()
+	if !started || !targetStarted {
+		return errors.New("peer unavailable")
+	}
+	if err := observer.Authenticated(target.id); err != nil {
 		return err
 	}
-	if err := target.observer.Authenticated(t.id); err != nil {
+	if err := targetObserver.Authenticated(t.id); err != nil {
 		return err
 	}
-	message, err := meshbus.NewReceivedMessage(t.id.Bytes(), payload)
+	message, err := core.NewReceivedMessage(t.id.Bytes(), payload)
 	if err != nil {
 		return err
 	}
-	return target.handler(ctx, message)
+	return targetHandler(ctx, message)
 }
 
 func (t *externalTransport) discover(peer *externalTransport) error {
-	return t.observer.Discovered(meshbus.Peer{ID: peer.id})
+	t.mu.RLock()
+	observer := t.observer
+	t.mu.RUnlock()
+	return observer.Discovered(core.Peer{ID: peer.id})
 }
 
 func TestPublicNodeAPIFromExternalPackage(t *testing.T) {
 	network := newExternalNetwork()
 	var transportA, transportB *externalTransport
-	nodeA, err := meshbus.NewNode(meshbus.NodeConfig{Transport: network.factory(1, &transportA)})
+	nodeA, err := core.NewNode(core.NodeConfig{Transport: network.factory(1, &transportA)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer nodeA.Close()
-	nodeB, err := meshbus.NewNode(meshbus.NodeConfig{Transport: network.factory(2, &transportB)})
+	nodeB, err := core.NewNode(core.NodeConfig{Transport: network.factory(2, &transportB)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +129,8 @@ func TestPublicNodeAPIFromExternalPackage(t *testing.T) {
 	if err := transportB.discover(transportA); err != nil {
 		t.Fatal(err)
 	}
-	events := make(chan meshbus.ReceivedEvent, 1)
-	if _, err := nodeB.Subscribe("example.event", func(_ context.Context, event meshbus.ReceivedEvent) error {
+	events := make(chan core.ReceivedEvent, 1)
+	if _, err := nodeB.Subscribe("example.event", func(_ context.Context, event core.ReceivedEvent) error {
 		events <- event
 		return nil
 	}); err != nil {
@@ -122,7 +141,7 @@ func TestPublicNodeAPIFromExternalPackage(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for {
-		result, publishErr := nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{})
+		result, publishErr := nodeA.Publish(ctx, "example.event", []byte("hello"), core.PublishOptions{})
 		if publishErr != nil {
 			t.Fatal(publishErr)
 		}
@@ -147,8 +166,8 @@ func TestPublicNodeAPIFromExternalPackage(t *testing.T) {
 func ExampleNode() {
 	network := newExternalNetwork()
 	var transportA, transportB *externalTransport
-	nodeA, _ := meshbus.NewNode(meshbus.NodeConfig{Transport: network.factory(1, &transportA)})
-	nodeB, _ := meshbus.NewNode(meshbus.NodeConfig{Transport: network.factory(2, &transportB)})
+	nodeA, _ := core.NewNode(core.NodeConfig{Transport: network.factory(1, &transportA)})
+	nodeB, _ := core.NewNode(core.NodeConfig{Transport: network.factory(2, &transportB)})
 	defer nodeA.Close()
 	defer nodeB.Close()
 	ctx := context.Background()
@@ -158,13 +177,13 @@ func ExampleNode() {
 	_ = transportB.discover(transportA)
 	_ = nodeA.Send(ctx, nodeB.Identity(), []byte("authenticate"))
 
-	received := make(chan meshbus.ReceivedEvent, 1)
-	_, _ = nodeB.Subscribe("example.event", func(_ context.Context, event meshbus.ReceivedEvent) error {
+	received := make(chan core.ReceivedEvent, 1)
+	_, _ = nodeB.Subscribe("example.event", func(_ context.Context, event core.ReceivedEvent) error {
 		received <- event
 		return nil
 	})
 	for {
-		result, _ := nodeA.Publish(ctx, "example.event", []byte("hello"), meshbus.PublishOptions{})
+		result, _ := nodeA.Publish(ctx, "example.event", []byte("hello"), core.PublishOptions{})
 		if result.Attempted != 0 {
 			break
 		}

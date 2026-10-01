@@ -8,9 +8,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/mytecor/meshbus"
-	"github.com/mytecor/meshbus/realm"
-	meshrns "github.com/mytecor/meshbus/rns"
+	"github.com/mytecor/meshbus/core"
+	"github.com/mytecor/meshbus/security/realm"
+	meshrns "github.com/mytecor/meshbus/transport/rns"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 				"service": "rns-shared-example",
 			},
 		},
-		DirectHandler: func(_ context.Context, message meshbus.ReceivedMessage) error {
+		DirectHandler: func(_ context.Context, message core.ReceivedMessage) error {
 			fmt.Printf("direct %s: %s\n", message.Sender(), message.Payload())
 			return nil
 		},
@@ -42,7 +42,7 @@ func main() {
 	}
 	defer node.Close()
 
-	if _, err := node.Subscribe("example.message", func(_ context.Context, event meshbus.ReceivedEvent) error {
+	if _, err := node.Subscribe("example.message", func(_ context.Context, event core.ReceivedEvent) error {
 		fmt.Printf("event %s: %s\n", event.Sender, event.Payload)
 		return nil
 	}); err != nil {

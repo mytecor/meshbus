@@ -3,20 +3,20 @@
 ## Repository layout
 
 ```text
-./                 transport-independent public meshbus package
-internal/subject/  shared topic grammar and wildcard matching
-internal/wire/     versioned event and interest binary codecs
-realm/             standard-library-only realm primitive
-rns/               public Reticulum adapter and its package-private mechanics
-docs/              architecture, usage, and wire contracts
-examples/          buildable application examples
-integration/       black-box tests that consume only exported APIs
-.github/workflows/ standalone continuous verification
+core/                       transport-independent public API and composition root
+security/realm/             standard-library-only realm primitive
+transport/rns/              public Reticulum adapter and package-private mechanics
+internal/protocol/subject/  shared topic grammar and wildcard matching
+internal/protocol/wire/     versioned event and interest binary codecs
+docs/                       architecture, usage, and wire contracts
+examples/                   buildable application examples
+integration/                black-box tests that consume only exported APIs
+.github/workflows/          standalone continuous verification
 ```
 
-The public core remains at the module root so consumers import `github.com/mytecor/meshbus` rather
-than an artificial `pkg/meshbus` or `core` suffix. Files move into a new package only when there is
-a real dependency boundary, not merely to reduce the number of files shown at the root.
+The module root contains repository metadata and project documentation only. Runtime code is grouped
+by dependency direction: applications use `core`, security primitives live under `security`, and
+transport adapters live under `transport`. Protocol details shared by those packages stay internal.
 
 Within the public core, files follow responsibilities rather than types: `node.go` is the composition
 root, while lifecycle, peer observation, interest exchange, and the public forwarding API live in
@@ -28,7 +28,7 @@ The `internal` packages contain pure policy/codecs and cannot depend back on the
 ```text
 application
     ↓ direct handler / subscriptions / application authorization
-meshbus.Node
+core.Node
     ↓ authenticated PeerID messages and bounded one-hop events
 transport adapter
     ↓ discovery, routes, sessions, encryption, authenticated identity
