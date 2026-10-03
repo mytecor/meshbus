@@ -202,14 +202,20 @@ func connectSharedInstanceAt(transport *rnstransport.Transport, port int, socket
 		func() { transport.SetConnectedToSharedInstance(false) },
 		func() { transport.SetConnectedToSharedInstance(true) },
 	)
+	// Mark the transport before registering the live local interface. Start
+	// launches the interface read loop, and RegisterInterface makes inbound
+	// packets visible to the transport immediately; setting this afterwards
+	// races packet filtering on a busy shared instance.
+	transport.SetConnectedToSharedInstance(true)
 	if err := client.Start(); err != nil {
+		transport.SetConnectedToSharedInstance(false)
 		_ = client.Stop()
 		return nil, fmt.Errorf("%w: %v", ErrSharedInstanceUnavailable, err)
 	}
 	if err := transport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); err != nil {
+		transport.SetConnectedToSharedInstance(false)
 		_ = client.Stop()
 		return nil, fmt.Errorf("register RNS shared-instance client: %w", err)
 	}
-	transport.SetConnectedToSharedInstance(true)
 	return &sharedinstance.Instance{Mode: sharedinstance.ModeClient, Client: client}, nil
 }

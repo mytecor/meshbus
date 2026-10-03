@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Quad4-Software/Reticulum-Go/pkg/common"
+	"github.com/Quad4-Software/Reticulum-Go/pkg/interfaces"
 	"github.com/Quad4-Software/Reticulum-Go/pkg/sharedinstance"
 	rnstransport "github.com/Quad4-Software/Reticulum-Go/pkg/transport"
 )
@@ -33,6 +34,59 @@ func TestProductionStackRequiresSharedInstanceClientMode(t *testing.T) {
 	if len(value.interfaces) != 0 || len(value.started) != 0 {
 		t.Fatalf("production stack constructed standalone interfaces: configured=%d started=%d", len(value.interfaces), len(value.started))
 	}
+}
+
+func TestRequiredSharedInstanceMarksConnectedBeforeInterfaceLive(t *testing.T) {
+	// A real listener exercising the full Start + RegisterInterface sequence.
+	port := freeTCPPort(t)
+	serverConfig := common.NewReticulumConfig()
+	serverConfig.EnableTransport = true
+	serverConfig.InMemoryStorage = true
+	serverTransport := rnstransport.NewTransport(serverConfig)
+	if err := serverTransport.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverTransport.InitializePathRequestHandler(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	server, err := interfaces.NewLocalServerInterface(port, "", false, func(client *interfaces.LocalClientInterface) {
+		if registerErr := serverTransport.RegisterInterface(client.GetName(), &serializedLocalClient{LocalClientInterface: client}); registerErr != nil {
+			_ = client.Stop()
+		}
+	}, nil)
+	if err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	if err := serverTransport.RegisterInterface(server.GetName(), server); err != nil {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = server.Stop()
+		_ = serverTransport.Close()
+	})
+
+	// The transport must report connected once attach succeeds. The fix marks
+	// SetConnectedToSharedInstance(true) before client.Start()/RegisterInterface()
+	// so the shared-instance link is treated as an egress interface from the very
+	// first inbound packet, matching upstream sharedinstance.Attach ordering.
+	transport := rnstransport.NewTransport(common.NewReticulumConfig())
+	instance, err := connectSharedInstanceAt(transport, port, "", false)
+	if err != nil {
+		t.Fatalf("connectSharedInstanceAt() error = %v", err)
+	}
+	if !transport.ConnectedToSharedInstance() {
+		t.Fatal("transport not marked connected to shared instance before interface went live")
+	}
+	instance.Close()
+	_ = transport.Close()
 }
 
 func TestRequiredSharedInstanceFailsClosedWithoutListener(t *testing.T) {

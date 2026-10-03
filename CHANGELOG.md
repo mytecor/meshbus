@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.4.0 — 2026-10-03
+
+- Fixed a startup ordering race in the required shared-instance client: the transport is now
+  marked connected to the shared instance before the live local interface starts, so the
+  shared-instance link is an egress interface from the very first inbound packet. Previously a
+  packet arriving between interface registration and the connectivity flag could be filtered,
+  dropping outbound path requests and stranding client transports on a busy shared daemon
+  until the daemon link flapped.
+- Added a shared-instance correctness regression test.
+
+## v0.3.0 — 2026-10-02
+
 - Added NATS-style `*` and terminal `>` subscription patterns with wildcard local dispatch.
 - Added direct, leased interest query/renewal and routed publications only to matching peers.
 - Removed the redundant RNS session-wide send mutex and covered concurrent Channel/Resource sends.
